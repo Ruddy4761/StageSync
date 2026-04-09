@@ -47,3 +47,16 @@ app.*.map.json
 # Firebase secrets - DO NOT COMMIT
 lib/firebase_options.dart
 android/app/google-services.json
+
+# Android signing secrets - DO NOT COMMIT
+android/local.properties
+android/key.properties
+*.keystore
+*.jks
+
+# Environment variables
+.env
+.env.*
+
+# Flutter plugins (auto-generated)
+.flutter-plugins
