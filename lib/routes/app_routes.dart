@@ -3,7 +3,9 @@ class AppRoutes {
   static const String login = '/login';
   static const String signup = '/signup';
   static const String home = '/home';
+  static const String profile = '/profile';
   static const String createConcert = '/create-concert';
+  static const String editConcert = '/edit-concert';
   static const String concertDetail = '/concert-detail';
   static const String createTask = '/create-task';
   static const String taskDetail = '/task-detail';

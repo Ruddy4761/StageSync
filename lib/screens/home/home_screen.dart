@@ -149,17 +149,20 @@ class _HomeScreenState extends State<HomeScreen> {
                             color: AppColors.textSecondary,
                           ),
                         ),
-                        // Logout button
+                        // Profile button
                         IconButton(
-                          onPressed: () => _showLogoutDialog(),
+                          onPressed: () => Navigator.pushNamed(
+                              context, AppRoutes.profile),
                           icon: Container(
                             padding: const EdgeInsets.all(6),
                             decoration: BoxDecoration(
                               color: AppColors.surfaceLight,
                               borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                  color: AppColors.primary.withValues(alpha: 0.3)),
                             ),
-                            child: const Icon(Icons.logout_rounded,
-                                color: AppColors.neonRed, size: 18),
+                            child: const Icon(Icons.person_rounded,
+                                color: AppColors.primaryLight, size: 18),
                           ),
                         ),
                       ],

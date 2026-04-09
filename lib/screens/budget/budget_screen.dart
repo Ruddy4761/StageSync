@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:intl/intl.dart';
 import '../../theme/app_colors.dart';
 import '../../routes/app_routes.dart';
 import '../../data/app_state.dart';
 import '../../models/expense.dart';
+import '../../services/permission_service.dart';
+import '../../widgets/app_snackbar.dart';
+import 'add_expense_screen.dart';
 
 class BudgetScreen extends StatefulWidget {
   final AppState appState;
@@ -77,6 +81,32 @@ class _BudgetScreenState extends State<BudgetScreen> {
       body: ListenableBuilder(
         listenable: widget.appState,
         builder: (context, _) {
+          // Permission gate
+          final canView = widget.appState
+              .hasPermission(widget.concertId, AppPermission.viewBudget);
+          if (!canView) {
+            return Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.lock_rounded,
+                      size: 56,
+                      color: AppColors.textMuted.withValues(alpha: 0.3)),
+                  const SizedBox(height: 16),
+                  const Text('Budget Access Restricted',
+                      style: TextStyle(
+                          color: AppColors.textMuted, fontSize: 16)),
+                  const SizedBox(height: 8),
+                  const Text(
+                      'Only Event Managers and Artist Managers\ncan view the budget.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                          color: AppColors.textMuted, fontSize: 13)),
+                ],
+              ),
+            );
+          }
+
           final concert = _getConcert();
           if (concert == null) {
             return const Center(child: Text('Concert not found'));
@@ -257,18 +287,140 @@ class _BudgetScreenState extends State<BudgetScreen> {
                       ),
                     );
                   }),
+                  const SizedBox(height: 20),
+                  const Text('All Expenses',
+                      style: TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 10),
+                  ...expenses.map((expense) => Dismissible(
+                    key: Key(expense.id),
+                    direction: DismissDirection.endToStart,
+                    background: Container(
+                      alignment: Alignment.centerRight,
+                      padding: const EdgeInsets.only(right: 20),
+                      margin: const EdgeInsets.only(bottom: 8),
+                      decoration: BoxDecoration(
+                        color: AppColors.neonRed.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(Icons.delete_rounded,
+                          color: AppColors.neonRed),
+                    ),
+                    onDismissed: (_) {
+                      widget.appState.deleteExpense(
+                          widget.concertId, expense.id);
+                    },
+                    child: Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: AppColors.surfaceCard,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 36,
+                            height: 36,
+                            decoration: BoxDecoration(
+                              color: AppColors.secondary.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Icon(Icons.receipt_rounded,
+                                size: 18, color: AppColors.secondary),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(expense.description,
+                                    style: const TextStyle(
+                                        color: AppColors.textPrimary,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w500),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis),
+                                const SizedBox(height: 2),
+                                Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: AppColors.surfaceLight,
+                                        borderRadius:
+                                            BorderRadius.circular(6),
+                                      ),
+                                      child: Text(expense.category,
+                                          style: const TextStyle(
+                                              color: AppColors.textMuted,
+                                              fontSize: 10)),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      DateFormat('d MMM').format(expense.date),
+                                      style: const TextStyle(
+                                          color: AppColors.textMuted,
+                                          fontSize: 10),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Text('₹${expense.amount.toStringAsFixed(0)}',
+                                  style: const TextStyle(
+                                      color: AppColors.neonOrange,
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 14)),
+                              IconButton(
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(
+                                    minWidth: 28, minHeight: 28),
+                                icon: const Icon(Icons.edit_rounded,
+                                    size: 14,
+                                    color: AppColors.textMuted),
+                                onPressed: () => Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => AddExpenseScreen(
+                                      appState: widget.appState,
+                                      concertId: widget.concertId,
+                                      expense: expense,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  )),
                 ],
               ],
             ],
           );
         },
       ),
-      floatingActionButton: FloatingActionButton(
-        heroTag: 'addExpense',
-        onPressed: () => Navigator.pushNamed(context, AppRoutes.addExpense,
-            arguments: widget.concertId),
-        child: const Icon(Icons.add_rounded),
-      ),
+      floatingActionButton: widget.appState.hasPermission(
+              widget.concertId, AppPermission.addExpense)
+          ? FloatingActionButton(
+              heroTag: 'addExpense',
+              onPressed: () => Navigator.pushNamed(
+                  context, AppRoutes.addExpense,
+                  arguments: widget.concertId),
+              child: const Icon(Icons.add_rounded),
+            )
+          : null,
     );
   }
 

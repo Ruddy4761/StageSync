@@ -11,24 +11,26 @@ import '../models/contact.dart';
 class FirestoreService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
-  // ===================== CONCERTS =====================
+  // ─── CONCERTS ────────────────────────────────────────────────────
 
-  /// Create a new concert
   Future<void> createConcert(Concert concert) async {
     await _db.collection('concerts').doc(concert.id).set(concert.toMap());
   }
 
-  /// Update an existing concert
   Future<void> updateConcert(Concert concert) async {
     await _db.collection('concerts').doc(concert.id).update(concert.toMap());
   }
 
-  /// Delete a concert and all its subcollections
   Future<void> deleteConcert(String concertId) async {
-    // Delete subcollections first
-    final subcollections = ['tasks', 'artists', 'staff', 'incidents', 'notes', 'expenses', 'contacts'];
+    final subcollections = [
+      'tasks', 'artists', 'staff', 'incidents', 'notes', 'expenses', 'contacts'
+    ];
     for (final sub in subcollections) {
-      final docs = await _db.collection('concerts').doc(concertId).collection(sub).get();
+      final docs = await _db
+          .collection('concerts')
+          .doc(concertId)
+          .collection(sub)
+          .get();
       for (final doc in docs.docs) {
         await doc.reference.delete();
       }
@@ -36,7 +38,6 @@ class FirestoreService {
     await _db.collection('concerts').doc(concertId).delete();
   }
 
-  /// Stream concerts where user is a member
   Stream<List<Concert>> streamUserConcerts(String userId) {
     return _db
         .collection('concerts')
@@ -47,7 +48,6 @@ class FirestoreService {
             .toList());
   }
 
-  /// Find concert by join code
   Future<Concert?> findConcertByJoinCode(String code) async {
     final snapshot = await _db
         .collection('concerts')
@@ -55,24 +55,34 @@ class FirestoreService {
         .limit(1)
         .get();
     if (snapshot.docs.isEmpty) return null;
-    return Concert.fromMap(snapshot.docs.first.id, snapshot.docs.first.data());
+    return Concert.fromMap(
+        snapshot.docs.first.id, snapshot.docs.first.data());
   }
 
-  /// Add a user to a concert's member list
+  /// Returns just the concert name for a code (lightweight lookup for join step 1).
+  Future<String?> lookupConcertNameByCode(String code) async {
+    final snapshot = await _db
+        .collection('concerts')
+        .where('joinCode', isEqualTo: code.toUpperCase())
+        .limit(1)
+        .get();
+    if (snapshot.docs.isEmpty) return null;
+    return snapshot.docs.first.data()['name'] as String?;
+  }
+
   Future<void> addMemberToConcert(String concertId, String userId) async {
     await _db.collection('concerts').doc(concertId).update({
       'memberIds': FieldValue.arrayUnion([userId]),
     });
   }
 
-  /// Update concert budget
   Future<void> setConcertBudget(String concertId, double budget) async {
     await _db.collection('concerts').doc(concertId).update({
       'totalBudget': budget,
     });
   }
 
-  // ===================== TASKS =====================
+  // ─── TASKS ───────────────────────────────────────────────────────
 
   Stream<List<ConcertTask>> streamTasks(String concertId) {
     return _db
@@ -81,7 +91,8 @@ class FirestoreService {
         .collection('tasks')
         .orderBy('time')
         .snapshots()
-        .map((s) => s.docs.map((d) => ConcertTask.fromMap(d.id, d.data())).toList());
+        .map((s) =>
+            s.docs.map((d) => ConcertTask.fromMap(d.id, d.data())).toList());
   }
 
   Future<void> addTask(String concertId, ConcertTask task) async {
@@ -111,7 +122,7 @@ class FirestoreService {
         .delete();
   }
 
-  // ===================== ARTISTS =====================
+  // ─── ARTISTS ─────────────────────────────────────────────────────
 
   Stream<List<Artist>> streamArtists(String concertId) {
     return _db
@@ -120,7 +131,8 @@ class FirestoreService {
         .collection('artists')
         .orderBy('order')
         .snapshots()
-        .map((s) => s.docs.map((d) => Artist.fromMap(d.id, d.data())).toList());
+        .map((s) =>
+            s.docs.map((d) => Artist.fromMap(d.id, d.data())).toList());
   }
 
   Future<void> addArtist(String concertId, Artist artist) async {
@@ -150,7 +162,7 @@ class FirestoreService {
         .delete();
   }
 
-  // ===================== STAFF =====================
+  // ─── STAFF ───────────────────────────────────────────────────────
 
   Stream<List<Staff>> streamStaff(String concertId) {
     return _db
@@ -158,7 +170,8 @@ class FirestoreService {
         .doc(concertId)
         .collection('staff')
         .snapshots()
-        .map((s) => s.docs.map((d) => Staff.fromMap(d.id, d.data())).toList());
+        .map((s) =>
+            s.docs.map((d) => Staff.fromMap(d.id, d.data())).toList());
   }
 
   Future<void> addStaff(String concertId, Staff member) async {
@@ -188,7 +201,7 @@ class FirestoreService {
         .delete();
   }
 
-  // ===================== INCIDENTS =====================
+  // ─── INCIDENTS ───────────────────────────────────────────────────
 
   Stream<List<Incident>> streamIncidents(String concertId) {
     return _db
@@ -197,7 +210,8 @@ class FirestoreService {
         .collection('incidents')
         .orderBy('time', descending: true)
         .snapshots()
-        .map((s) => s.docs.map((d) => Incident.fromMap(d.id, d.data())).toList());
+        .map((s) =>
+            s.docs.map((d) => Incident.fromMap(d.id, d.data())).toList());
   }
 
   Future<void> addIncident(String concertId, Incident incident) async {
@@ -218,7 +232,16 @@ class FirestoreService {
         .update(incident.toMap());
   }
 
-  // ===================== NOTES =====================
+  Future<void> deleteIncident(String concertId, String incidentId) async {
+    await _db
+        .collection('concerts')
+        .doc(concertId)
+        .collection('incidents')
+        .doc(incidentId)
+        .delete();
+  }
+
+  // ─── NOTES ───────────────────────────────────────────────────────
 
   Stream<List<Note>> streamNotes(String concertId) {
     return _db
@@ -227,7 +250,8 @@ class FirestoreService {
         .collection('notes')
         .orderBy('timestamp', descending: true)
         .snapshots()
-        .map((s) => s.docs.map((d) => Note.fromMap(d.id, d.data())).toList());
+        .map((s) =>
+            s.docs.map((d) => Note.fromMap(d.id, d.data())).toList());
   }
 
   Future<void> addNote(String concertId, Note note) async {
@@ -239,7 +263,8 @@ class FirestoreService {
         .set(note.toMap());
   }
 
-  Future<void> toggleNotePin(String concertId, String noteId, bool isPinned) async {
+  Future<void> toggleNotePin(
+      String concertId, String noteId, bool isPinned) async {
     await _db
         .collection('concerts')
         .doc(concertId)
@@ -248,7 +273,16 @@ class FirestoreService {
         .update({'isPinned': isPinned});
   }
 
-  // ===================== EXPENSES =====================
+  Future<void> deleteNote(String concertId, String noteId) async {
+    await _db
+        .collection('concerts')
+        .doc(concertId)
+        .collection('notes')
+        .doc(noteId)
+        .delete();
+  }
+
+  // ─── EXPENSES ────────────────────────────────────────────────────
 
   Stream<List<Expense>> streamExpenses(String concertId) {
     return _db
@@ -257,7 +291,8 @@ class FirestoreService {
         .collection('expenses')
         .orderBy('date', descending: true)
         .snapshots()
-        .map((s) => s.docs.map((d) => Expense.fromMap(d.id, d.data())).toList());
+        .map((s) =>
+            s.docs.map((d) => Expense.fromMap(d.id, d.data())).toList());
   }
 
   Future<void> addExpense(String concertId, Expense expense) async {
@@ -269,6 +304,15 @@ class FirestoreService {
         .set(expense.toMap());
   }
 
+  Future<void> updateExpense(String concertId, Expense expense) async {
+    await _db
+        .collection('concerts')
+        .doc(concertId)
+        .collection('expenses')
+        .doc(expense.id)
+        .update(expense.toMap());
+  }
+
   Future<void> deleteExpense(String concertId, String expenseId) async {
     await _db
         .collection('concerts')
@@ -278,7 +322,7 @@ class FirestoreService {
         .delete();
   }
 
-  // ===================== EMERGENCY CONTACTS =====================
+  // ─── EMERGENCY CONTACTS ──────────────────────────────────────────
 
   Stream<List<EmergencyContact>> streamContacts(String concertId) {
     return _db
@@ -286,7 +330,8 @@ class FirestoreService {
         .doc(concertId)
         .collection('contacts')
         .snapshots()
-        .map((s) => s.docs.map((d) => EmergencyContact.fromMap(d.id, d.data())).toList());
+        .map((s) =>
+            s.docs.map((d) => EmergencyContact.fromMap(d.id, d.data())).toList());
   }
 
   Future<void> addContact(String concertId, EmergencyContact contact) async {
@@ -298,7 +343,8 @@ class FirestoreService {
         .set(contact.toMap());
   }
 
-  Future<void> updateContact(String concertId, EmergencyContact contact) async {
+  Future<void> updateContact(
+      String concertId, EmergencyContact contact) async {
     await _db
         .collection('concerts')
         .doc(concertId)
@@ -307,7 +353,8 @@ class FirestoreService {
         .update(contact.toMap());
   }
 
-  Future<void> deleteContact(String concertId, String contactId) async {
+  Future<void> deleteContact(
+      String concertId, String contactId) async {
     await _db
         .collection('concerts')
         .doc(concertId)

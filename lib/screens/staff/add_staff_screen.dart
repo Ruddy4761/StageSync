@@ -2,12 +2,21 @@ import 'package:flutter/material.dart';
 import '../../theme/app_colors.dart';
 import '../../data/app_state.dart';
 import '../../models/staff.dart';
+import '../../widgets/app_snackbar.dart';
+import '../../widgets/loading_button.dart';
 
+/// Create/Edit staff screen. Pass [staff] to edit existing member.
 class AddStaffScreen extends StatefulWidget {
   final AppState appState;
   final String concertId;
-  const AddStaffScreen(
-      {super.key, required this.appState, required this.concertId});
+  final Staff? staff; // null = create mode
+
+  const AddStaffScreen({
+    super.key,
+    required this.appState,
+    required this.concertId,
+    this.staff,
+  });
 
   @override
   State<AddStaffScreen> createState() => _AddStaffScreenState();
@@ -15,11 +24,31 @@ class AddStaffScreen extends StatefulWidget {
 
 class _AddStaffScreenState extends State<AddStaffScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _nameController = TextEditingController();
-  final _contactController = TextEditingController();
-  String _selectedRole = Staff.availableRoles.first;
-  TimeOfDay _shiftStart = const TimeOfDay(hour: 14, minute: 0);
-  TimeOfDay _shiftEnd = const TimeOfDay(hour: 22, minute: 0);
+  late final TextEditingController _nameController;
+  late final TextEditingController _contactController;
+  late String _selectedRole;
+  late TimeOfDay _shiftStart;
+  late TimeOfDay _shiftEnd;
+  bool _loading = false;
+
+  bool get _isEditing => widget.staff != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final s = widget.staff;
+    _nameController = TextEditingController(text: s?.name ?? '');
+    _contactController =
+        TextEditingController(text: s?.contactNumber ?? '');
+    _selectedRole = s?.role ?? Staff.availableRoles.first;
+    _shiftStart = s?.shiftStart != null
+        ? TimeOfDay(
+            hour: s!.shiftStart!.hour, minute: s.shiftStart!.minute)
+        : const TimeOfDay(hour: 14, minute: 0);
+    _shiftEnd = s?.shiftEnd != null
+        ? TimeOfDay(hour: s!.shiftEnd!.hour, minute: s.shiftEnd!.minute)
+        : const TimeOfDay(hour: 22, minute: 0);
+  }
 
   @override
   void dispose() {
@@ -53,30 +82,61 @@ class _AddStaffScreenState extends State<AddStaffScreen> {
     }
   }
 
-  void _save() {
-    if (_formKey.currentState!.validate()) {
+  Future<void> _save() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    // Phone validation if provided
+    final phone = _contactController.text.trim();
+    if (phone.isNotEmpty &&
+        !RegExp(r'^\+?[\d\s\-]{7,15}$').hasMatch(phone)) {
+      AppSnackbar.error(context, 'Enter a valid phone number');
+      return;
+    }
+
+    setState(() => _loading = true);
+    try {
       final now = DateTime.now();
-      final member = Staff(
-        name: _nameController.text.trim(),
-        role: _selectedRole,
-        shiftStart: DateTime(
-            now.year, now.month, now.day, _shiftStart.hour, _shiftStart.minute),
-        shiftEnd: DateTime(
-            now.year, now.month, now.day, _shiftEnd.hour, _shiftEnd.minute),
-        contactNumber: _contactController.text.trim().isEmpty
-            ? null
-            : _contactController.text.trim(),
-        concertId: widget.concertId,
-      );
-      widget.appState.addStaff(member);
+      final shiftStart = DateTime(
+          now.year, now.month, now.day, _shiftStart.hour, _shiftStart.minute);
+      final shiftEnd = DateTime(
+          now.year, now.month, now.day, _shiftEnd.hour, _shiftEnd.minute);
+
+      if (_isEditing) {
+        widget.staff!.name = _nameController.text.trim();
+        widget.staff!.role = _selectedRole;
+        widget.staff!.shiftStart = shiftStart;
+        widget.staff!.shiftEnd = shiftEnd;
+        widget.staff!.contactNumber =
+            phone.isEmpty ? null : phone;
+        await widget.appState.updateStaff(widget.staff!);
+        if (!mounted) return;
+        AppSnackbar.success(context, 'Staff member updated!');
+      } else {
+        final member = Staff(
+          name: _nameController.text.trim(),
+          role: _selectedRole,
+          shiftStart: shiftStart,
+          shiftEnd: shiftEnd,
+          contactNumber: phone.isEmpty ? null : phone,
+          concertId: widget.concertId,
+        );
+        await widget.appState.addStaff(member);
+        if (!mounted) return;
+        AppSnackbar.success(context, 'Staff member added!');
+      }
       Navigator.pop(context);
+    } catch (e) {
+      if (!mounted) return;
+      AppSnackbar.error(context, 'Failed to save staff member. Please try again.');
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Add Staff')),
+      appBar: AppBar(title: Text(_isEditing ? 'Edit Staff Member' : 'Add Staff')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Form(
@@ -92,7 +152,8 @@ class _AddStaffScreenState extends State<AddStaffScreen> {
                   hintText: 'Full name',
                   prefixIcon: Icon(Icons.person_outline),
                 ),
-                validator: (v) => v == null || v.isEmpty ? 'Required' : null,
+                validator: (v) =>
+                    v == null || v.trim().isEmpty ? 'Name is required' : null,
               ),
               const SizedBox(height: 16),
 
@@ -104,7 +165,9 @@ class _AddStaffScreenState extends State<AddStaffScreen> {
                   border: Border.all(color: AppColors.surfaceElevated),
                 ),
                 child: DropdownButtonFormField<String>(
-                  value: _selectedRole,
+                  value: Staff.availableRoles.contains(_selectedRole)
+                      ? _selectedRole
+                      : Staff.availableRoles.first,
                   dropdownColor: AppColors.surfaceLight,
                   decoration: const InputDecoration(
                     prefixIcon: Icon(Icons.badge_outlined),
@@ -160,27 +223,11 @@ class _AddStaffScreenState extends State<AddStaffScreen> {
               ),
               const SizedBox(height: 28),
 
-              SizedBox(
-                width: double.infinity,
-                height: 52,
-                child: Container(
-                  decoration: BoxDecoration(
-                    gradient: AppColors.primaryGradient,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: ElevatedButton.icon(
-                    onPressed: _save,
-                    icon: const Icon(Icons.person_add_rounded,
-                        color: Colors.white),
-                    label: const Text('Add Staff',
-                        style: TextStyle(
-                            color: Colors.white, fontWeight: FontWeight.w600)),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.transparent,
-                      shadowColor: Colors.transparent,
-                    ),
-                  ),
-                ),
+              LoadingButton(
+                label: _isEditing ? 'Update Staff Member' : 'Add Staff Member',
+                icon: _isEditing ? Icons.save_rounded : Icons.person_add_rounded,
+                isLoading: _loading,
+                onPressed: _save,
               ),
             ],
           ),
@@ -200,7 +247,8 @@ class _AddStaffScreenState extends State<AddStaffScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(label,
-                style: const TextStyle(color: AppColors.textMuted, fontSize: 10)),
+                style: const TextStyle(
+                    color: AppColors.textMuted, fontSize: 10)),
             const SizedBox(height: 2),
             Row(
               children: [

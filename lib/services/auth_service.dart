@@ -13,7 +13,7 @@ class AuthService {
   // Auth state stream
   Stream<User?> get authStateChanges => _auth.authStateChanges();
 
-  // Sign up with email & password
+  // ─── Sign Up ────────────────────────────────────────────────────
   Future<({bool success, String? error})> signUp({
     required String name,
     required String email,
@@ -24,17 +24,12 @@ class AuthService {
         email: email,
         password: password,
       );
-
-      // Update display name
       await credential.user?.updateDisplayName(name);
-
-      // Create user document in Firestore
       await _firestore.collection('users').doc(credential.user!.uid).set({
         'name': name,
         'email': email,
         'createdAt': FieldValue.serverTimestamp(),
       });
-
       return (success: true, error: null);
     } on FirebaseAuthException catch (e) {
       return (success: false, error: _getAuthErrorMessage(e.code));
@@ -43,7 +38,7 @@ class AuthService {
     }
   }
 
-  // Sign in with email & password
+  // ─── Sign In ────────────────────────────────────────────────────
   Future<({bool success, String? error})> signIn({
     required String email,
     required String password,
@@ -61,12 +56,12 @@ class AuthService {
     }
   }
 
-  // Sign out
+  // ─── Sign Out ───────────────────────────────────────────────────
   Future<void> signOut() async {
     await _auth.signOut();
   }
 
-  // Reset password
+  // ─── Reset Password ─────────────────────────────────────────────
   Future<({bool success, String? error})> resetPassword(String email) async {
     try {
       await _auth.sendPasswordResetEmail(email: email);
@@ -78,14 +73,58 @@ class AuthService {
     }
   }
 
-  // Get display name
+  // ─── Update Display Name ─────────────────────────────────────────
+  Future<({bool success, String? error})> updateDisplayName(
+      String name) async {
+    try {
+      await _auth.currentUser?.updateDisplayName(name);
+      final uid = _auth.currentUser?.uid;
+      if (uid != null) {
+        await _firestore
+            .collection('users')
+            .doc(uid)
+            .update({'name': name});
+      }
+      return (success: true, error: null);
+    } on FirebaseAuthException catch (e) {
+      return (success: false, error: _getAuthErrorMessage(e.code));
+    } catch (e) {
+      return (success: false, error: 'Failed to update name');
+    }
+  }
+
+  // ─── Update Password ─────────────────────────────────────────────
+  /// Requires [currentPassword] for re-authentication before changing.
+  Future<({bool success, String? error})> updatePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    try {
+      final user = _auth.currentUser;
+      if (user == null || user.email == null) {
+        return (success: false, error: 'Not logged in');
+      }
+      final credential = EmailAuthProvider.credential(
+        email: user.email!,
+        password: currentPassword,
+      );
+      await user.reauthenticateWithCredential(credential);
+      await user.updatePassword(newPassword);
+      return (success: true, error: null);
+    } on FirebaseAuthException catch (e) {
+      return (success: false, error: _getAuthErrorMessage(e.code));
+    } catch (e) {
+      return (success: false, error: 'Failed to update password');
+    }
+  }
+
+  // ─── Getters ─────────────────────────────────────────────────────
   String get displayName =>
       _auth.currentUser?.displayName ?? _auth.currentUser?.email ?? 'User';
 
-  // Get user email
   String get email => _auth.currentUser?.email ?? '';
 
-  // Human-readable auth error messages
+  // ─── Error Messages ──────────────────────────────────────────────
   String _getAuthErrorMessage(String code) {
     switch (code) {
       case 'weak-password':
@@ -104,6 +143,8 @@ class AuthService {
         return 'Too many attempts. Please try again later.';
       case 'invalid-credential':
         return 'Invalid email or password.';
+      case 'requires-recent-login':
+        return 'Please sign out and sign back in to change your password.';
       default:
         return 'Authentication failed. Please try again.';
     }

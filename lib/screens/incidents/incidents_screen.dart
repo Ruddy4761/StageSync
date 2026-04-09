@@ -4,6 +4,9 @@ import '../../theme/app_colors.dart';
 import '../../routes/app_routes.dart';
 import '../../data/app_state.dart';
 import '../../models/incident.dart';
+import '../../services/permission_service.dart';
+import '../../widgets/app_snackbar.dart';
+import 'edit_incident_screen.dart';
 
 class IncidentsScreen extends StatefulWidget {
   final AppState appState;
@@ -88,7 +91,30 @@ class _IncidentsScreenState extends State<IncidentsScreen> {
                         itemCount: incidents.length,
                         itemBuilder: (context, index) {
                           final incident = incidents[index];
-                          return _incidentCard(incident);
+                          final canDelete = widget.appState.hasPermission(
+                              widget.concertId, AppPermission.deleteIncident);
+                          return Dismissible(
+                            key: Key(incident.id),
+                            direction: canDelete
+                                ? DismissDirection.endToStart
+                                : DismissDirection.none,
+                            background: Container(
+                              alignment: Alignment.centerRight,
+                              padding: const EdgeInsets.only(right: 20),
+                              margin: const EdgeInsets.only(bottom: 10),
+                              decoration: BoxDecoration(
+                                color: AppColors.neonRed.withValues(alpha: 0.2),
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              child: const Icon(Icons.delete_rounded,
+                                  color: AppColors.neonRed),
+                            ),
+                            onDismissed: (_) {
+                              widget.appState
+                                  .deleteIncident(widget.concertId, incident.id);
+                            },
+                            child: _incidentCard(context, incident),
+                          );
                         },
                       ),
               ),
@@ -98,14 +124,22 @@ class _IncidentsScreenState extends State<IncidentsScreen> {
       ),
       floatingActionButton: FloatingActionButton(
         heroTag: 'logIncident',
-        onPressed: () => Navigator.pushNamed(context, AppRoutes.logIncident,
-            arguments: widget.concertId),
+        onPressed: () {
+          if (!widget.appState.hasPermission(
+              widget.concertId, AppPermission.logIncident)) {
+            AppSnackbar.warning(
+                context, 'You don\'t have permission to log incidents');
+            return;
+          }
+          Navigator.pushNamed(context, AppRoutes.logIncident,
+              arguments: widget.concertId);
+        },
         child: const Icon(Icons.add_rounded),
       ),
     );
   }
 
-  Widget _incidentCard(Incident incident) {
+  Widget _incidentCard(BuildContext context, Incident incident) {
     final severityColor = incident.severity == IncidentSeverity.high
         ? AppColors.severityHigh
         : incident.severity == IncidentSeverity.medium
@@ -181,6 +215,29 @@ class _IncidentsScreenState extends State<IncidentsScreen> {
                               color: severityColor,
                               fontSize: 10,
                               fontWeight: FontWeight.w600)),
+                    ),
+                    const SizedBox(width: 4),
+                    GestureDetector(
+                      onTap: () {
+                        if (!widget.appState.hasPermission(
+                            widget.concertId,
+                            AppPermission.editIncident)) {
+                          AppSnackbar.warning(context,
+                              'You don\'t have permission to edit incidents');
+                          return;
+                        }
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => EditIncidentScreen(
+                              appState: widget.appState,
+                              incident: incident,
+                            ),
+                          ),
+                        );
+                      },
+                      child: const Icon(Icons.edit_rounded,
+                          size: 16, color: AppColors.textMuted),
                     ),
                   ],
                 ),

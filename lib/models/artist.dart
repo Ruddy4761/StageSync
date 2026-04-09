@@ -3,7 +3,8 @@ import 'package:uuid/uuid.dart';
 class Artist {
   final String id;
   String name;
-  DateTime performanceTime;
+  String genre; // NEW: music genre/type
+  DateTime? performanceTime; // Made nullable
   int durationMinutes;
   String? specialRequirements;
   int order;
@@ -12,15 +13,17 @@ class Artist {
   Artist({
     String? id,
     required this.name,
-    required this.performanceTime,
+    this.genre = '',
+    this.performanceTime,
     required this.durationMinutes,
     this.specialRequirements,
     required this.order,
     required this.concertId,
   }) : id = id ?? const Uuid().v4();
 
-  DateTime get endTime =>
-      performanceTime.add(Duration(minutes: durationMinutes));
+  DateTime? get endTime => performanceTime != null
+      ? performanceTime!.add(Duration(minutes: durationMinutes))
+      : null;
 
   String get durationFormatted {
     final hours = durationMinutes ~/ 60;
@@ -34,7 +37,8 @@ class Artist {
   Map<String, dynamic> toMap() {
     return {
       'name': name,
-      'performanceTime': performanceTime.millisecondsSinceEpoch,
+      'genre': genre,
+      'performanceTime': performanceTime?.millisecondsSinceEpoch,
       'durationMinutes': durationMinutes,
       'specialRequirements': specialRequirements,
       'order': order,
@@ -46,8 +50,10 @@ class Artist {
     return Artist(
       id: id,
       name: map['name'] ?? '',
-      performanceTime:
-          DateTime.fromMillisecondsSinceEpoch(map['performanceTime'] ?? 0),
+      genre: map['genre'] ?? '',
+      performanceTime: map['performanceTime'] != null
+          ? DateTime.fromMillisecondsSinceEpoch(map['performanceTime'])
+          : null,
       durationMinutes: map['durationMinutes'] ?? 0,
       specialRequirements: map['specialRequirements'],
       order: map['order'] ?? 0,

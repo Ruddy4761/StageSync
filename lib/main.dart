@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'firebase_options.dart';
 import 'theme/app_theme.dart';
 import 'routes/app_routes.dart';
@@ -28,15 +29,22 @@ import 'screens/budget/budget_screen.dart';
 import 'screens/budget/add_expense_screen.dart';
 import 'screens/emergency/emergency_contacts_screen.dart';
 import 'screens/summary/summary_screen.dart';
+import 'screens/profile/profile_screen.dart';
+import 'screens/concert/edit_concert_screen.dart';
+import 'models/concert.dart';
 
 final AppState _appState = AppState();
 
 void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+  final widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
+  // Keep native splash visible while we initialize
+  FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
   _appState.initializeAuth();
+  // Remove native splash — our animated SplashScreen takes over
+  FlutterNativeSplash.remove();
   runApp(const StageSyncApp());
 }
 
@@ -129,6 +137,14 @@ class StageSyncApp extends StatelessWidget {
             final concertId = settings.arguments as String;
             return _slide(SummaryScreen(
                 appState: _appState, concertId: concertId));
+
+          case AppRoutes.profile:
+            return _slide(ProfileScreen(appState: _appState));
+
+          case AppRoutes.editConcert:
+            final concert = settings.arguments as Concert;
+            return _slide(EditConcertScreen(
+                appState: _appState, concert: concert));
 
           default:
             return _fade(SplashScreen(appState: _appState));

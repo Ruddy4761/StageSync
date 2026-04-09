@@ -3,12 +3,21 @@ import 'package:intl/intl.dart';
 import '../../theme/app_colors.dart';
 import '../../data/app_state.dart';
 import '../../models/task.dart';
+import '../../widgets/app_snackbar.dart';
+import '../../widgets/loading_button.dart';
 
+/// Create/Edit task screen. Pass [task] to edit, omit to create new.
 class CreateTaskScreen extends StatefulWidget {
   final AppState appState;
   final String concertId;
-  const CreateTaskScreen(
-      {super.key, required this.appState, required this.concertId});
+  final ConcertTask? task; // null = create mode, non-null = edit mode
+
+  const CreateTaskScreen({
+    super.key,
+    required this.appState,
+    required this.concertId,
+    this.task,
+  });
 
   @override
   State<CreateTaskScreen> createState() => _CreateTaskScreenState();
@@ -16,12 +25,29 @@ class CreateTaskScreen extends StatefulWidget {
 
 class _CreateTaskScreenState extends State<CreateTaskScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _nameController = TextEditingController();
-  final _descController = TextEditingController();
-  TimeOfDay _selectedTime = const TimeOfDay(hour: 10, minute: 0);
-  String? _assignedTo;
-  TaskStatus _status = TaskStatus.notStarted;
-  TaskPriority _priority = TaskPriority.medium;
+  late final TextEditingController _nameController;
+  late final TextEditingController _descController;
+  late TimeOfDay _selectedTime;
+  late String? _assignedTo;
+  late TaskStatus _status;
+  late TaskPriority _priority;
+  bool _loading = false;
+
+  bool get _isEditing => widget.task != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final t = widget.task;
+    _nameController = TextEditingController(text: t?.title ?? '');
+    _descController = TextEditingController(text: t?.description ?? '');
+    _selectedTime = t != null
+        ? TimeOfDay(hour: t.time.hour, minute: t.time.minute)
+        : const TimeOfDay(hour: 10, minute: 0);
+    _assignedTo = t?.assignedTo;
+    _status = t?.status ?? TaskStatus.notStarted;
+    _priority = t?.priority ?? TaskPriority.medium;
+  }
 
   @override
   void dispose() {
@@ -47,30 +73,57 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     if (picked != null) setState(() => _selectedTime = picked);
   }
 
-  void _save() {
-    if (_formKey.currentState!.validate()) {
+  Future<void> _save() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() => _loading = true);
+    try {
       final now = DateTime.now();
-      final task = ConcertTask(
-        title: _nameController.text.trim(),
-        time: DateTime(
-            now.year, now.month, now.day, _selectedTime.hour, _selectedTime.minute),
-        assignedTo: _assignedTo ?? 'Unassigned',
-        status: _status,
-        priority: _priority,
-        description: _descController.text.trim(),
-        concertId: widget.concertId,
-      );
-      widget.appState.addTask(task);
+      if (_isEditing) {
+        // Update existing
+        widget.task!.title = _nameController.text.trim();
+        widget.task!.description = _descController.text.trim();
+        widget.task!.time = DateTime(
+            now.year, now.month, now.day, _selectedTime.hour, _selectedTime.minute);
+        widget.task!.assignedTo = _assignedTo ?? 'Unassigned';
+        widget.task!.status = _status;
+        widget.task!.priority = _priority;
+        await widget.appState.updateTask(widget.task!);
+        if (!mounted) return;
+        AppSnackbar.success(context, 'Task updated!');
+      } else {
+        // Create new
+        final task = ConcertTask(
+          title: _nameController.text.trim(),
+          time: DateTime(now.year, now.month, now.day, _selectedTime.hour,
+              _selectedTime.minute),
+          assignedTo: _assignedTo ?? 'Unassigned',
+          status: _status,
+          priority: _priority,
+          description: _descController.text.trim().isEmpty
+              ? null
+              : _descController.text.trim(),
+          concertId: widget.concertId,
+        );
+        await widget.appState.addTask(task);
+        if (!mounted) return;
+        AppSnackbar.success(context, 'Task added!');
+      }
       Navigator.pop(context);
+    } catch (e) {
+      if (!mounted) return;
+      AppSnackbar.error(context, 'Failed to save task. Please try again.');
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final staffNames = widget.appState.getStaffNamesForConcert(widget.concertId);
+    final staffNames =
+        widget.appState.getStaffNamesForConcert(widget.concertId);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Add Task')),
+      appBar: AppBar(title: Text(_isEditing ? 'Edit Task' : 'Add Task')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Form(
@@ -86,7 +139,8 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                   hintText: 'e.g., Sound Check',
                   prefixIcon: Icon(Icons.task_alt_rounded),
                 ),
-                validator: (v) => v == null || v.isEmpty ? 'Required' : null,
+                validator: (v) =>
+                    v == null || v.trim().isEmpty ? 'Task name is required' : null,
               ),
               const SizedBox(height: 16),
 
@@ -94,7 +148,8 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
               GestureDetector(
                 onTap: _pickTime,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 14, vertical: 14),
                   decoration: BoxDecoration(
                     color: AppColors.surfaceLight,
                     borderRadius: BorderRadius.circular(12),
@@ -122,7 +177,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                   border: Border.all(color: AppColors.surfaceElevated),
                 ),
                 child: DropdownButtonFormField<String>(
-                  value: _assignedTo,
+                  value: staffNames.contains(_assignedTo) ? _assignedTo : null,
                   dropdownColor: AppColors.surfaceLight,
                   hint: const Text('Select team member',
                       style: TextStyle(color: AppColors.textMuted)),
@@ -135,7 +190,8 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                       .map((name) => DropdownMenuItem(
                           value: name,
                           child: Text(name,
-                              style: const TextStyle(color: AppColors.textPrimary))))
+                              style: const TextStyle(
+                                  color: AppColors.textPrimary))))
                       .toList(),
                   onChanged: (val) => setState(() => _assignedTo = val),
                 ),
@@ -154,13 +210,18 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                   return Padding(
                     padding: const EdgeInsets.only(right: 8),
                     child: ChoiceChip(
-                      label: Text(p.name[0].toUpperCase() + p.name.substring(1)),
+                      label: Text(
+                          p.name[0].toUpperCase() + p.name.substring(1)),
                       selected: isSelected,
                       selectedColor: color.withValues(alpha: 0.2),
                       side: BorderSide(
-                          color: isSelected ? color : AppColors.surfaceElevated),
+                          color: isSelected
+                              ? color
+                              : AppColors.surfaceElevated),
                       labelStyle: TextStyle(
-                          color: isSelected ? color : AppColors.textSecondary),
+                          color: isSelected
+                              ? color
+                              : AppColors.textSecondary),
                       onSelected: (_) => setState(() => _priority = p),
                     ),
                   );
@@ -211,25 +272,11 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
               ),
               const SizedBox(height: 28),
 
-              SizedBox(
-                width: double.infinity,
-                height: 52,
-                child: Container(
-                  decoration: BoxDecoration(
-                    gradient: AppColors.primaryGradient,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: ElevatedButton.icon(
-                    onPressed: _save,
-                    icon: const Icon(Icons.add_task_rounded, color: Colors.white),
-                    label: const Text('Add Task',
-                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.transparent,
-                      shadowColor: Colors.transparent,
-                    ),
-                  ),
-                ),
+              LoadingButton(
+                label: _isEditing ? 'Update Task' : 'Add Task',
+                icon: _isEditing ? Icons.save_rounded : Icons.add_task_rounded,
+                isLoading: _loading,
+                onPressed: _save,
               ),
             ],
           ),

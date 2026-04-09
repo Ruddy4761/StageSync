@@ -82,11 +82,11 @@ class _NotesScreenState extends State<NotesScreen> {
                                     fontSize: 12,
                                     fontWeight: FontWeight.w600)),
                             const SizedBox(height: 8),
-                            ...pinnedNotes.map((n) => _noteCard(n, true)),
+                            ...pinnedNotes.map((n) => _dismissibleNote(n, true)),
                             const SizedBox(height: 12),
                           ],
                           // Regular notes
-                          ...regularNotes.map((n) => _noteCard(n, false)),
+                          ...regularNotes.map((n) => _dismissibleNote(n, false)),
                         ],
                       ),
               ),
@@ -158,6 +158,27 @@ class _NotesScreenState extends State<NotesScreen> {
           );
         },
       ),
+    );
+  }
+
+  Widget _dismissibleNote(Note note, bool isPinned) {
+    return Dismissible(
+      key: Key(note.id),
+      direction: DismissDirection.endToStart,
+      background: Container(
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 20),
+        margin: const EdgeInsets.only(bottom: 8),
+        decoration: BoxDecoration(
+          color: AppColors.neonRed.withValues(alpha: 0.2),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: const Icon(Icons.delete_rounded, color: AppColors.neonRed),
+      ),
+      onDismissed: (_) {
+        widget.appState.deleteNote(widget.concertId, note.id);
+      },
+      child: _noteCard(note, isPinned),
     );
   }
 

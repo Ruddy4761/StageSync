@@ -10,12 +10,13 @@ import '../models/expense.dart';
 import '../models/contact.dart';
 import '../services/auth_service.dart';
 import '../services/firestore_service.dart';
+import '../services/permission_service.dart';
 
 class AppState extends ChangeNotifier {
   final AuthService _authService = AuthService();
   final FirestoreService _firestoreService = FirestoreService();
 
-  // Current user info
+  // ─── Current user info ───────────────────────────────────────────
   String get currentUserName => _authService.displayName;
   String get currentUserEmail => _authService.email;
   String get currentUserId => _authService.userId;
@@ -38,7 +39,7 @@ class AppState extends ChangeNotifier {
   StreamSubscription? _concertsSubscription;
   final Map<String, List<StreamSubscription>> _concertDataSubscriptions = {};
 
-  // --- Auth ---
+  // ─── Auth ────────────────────────────────────────────────────────
   Future<({bool success, String? error})> signUp({
     required String name,
     required String email,
@@ -89,6 +90,25 @@ class AppState extends ChangeNotifier {
     return _authService.resetPassword(email);
   }
 
+  /// Update display name — also re-notifies so UI picks up the new name
+  Future<({bool success, String? error})> updateDisplayName(
+      String name) async {
+    final result = await _authService.updateDisplayName(name);
+    if (result.success) notifyListeners();
+    return result;
+  }
+
+  /// Change password with re-authentication
+  Future<({bool success, String? error})> updatePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    return _authService.updatePassword(
+      currentPassword: currentPassword,
+      newPassword: newPassword,
+    );
+  }
+
   /// Check if user is already logged in and start listening
   void initializeAuth() {
     if (_authService.isLoggedIn) {
@@ -96,14 +116,13 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  // --- Concerts Streaming ---
+  // ─── Concerts Streaming ──────────────────────────────────────────
   void _startListeningConcerts() {
     _concertsSubscription?.cancel();
     _concertsSubscription = _firestoreService
         .streamUserConcerts(currentUserId)
         .listen((concertList) {
       _concerts = concertList;
-      // Start listening to subcollection data for each concert
       for (final concert in concertList) {
         if (!_concertDataSubscriptions.containsKey(concert.id)) {
           _listenToConcertData(concert.id);
@@ -171,15 +190,13 @@ class AppState extends ChangeNotifier {
     super.dispose();
   }
 
-  // --- Concert CRUD ---
+  // ─── Concert CRUD ────────────────────────────────────────────────
   Future<void> addConcert(Concert concert) async {
-    // Set creator info
     concert.creatorId = currentUserId;
     concert.memberIds = [currentUserId];
 
     await _firestoreService.createConcert(concert);
 
-    // Add creator as first staff member
     final creatorStaff = Staff(
       userId: currentUserId,
       name: currentUserName,
@@ -189,7 +206,6 @@ class AppState extends ChangeNotifier {
     );
     await _firestoreService.addStaff(concert.id, creatorStaff);
 
-    // Add default emergency contacts
     final defaultContacts = [
       EmergencyContact(name: 'Emergency Services', role: 'Medical/Ambulance', phoneNumber: '108', type: 'medical', concertId: concert.id),
       EmergencyContact(name: 'Fire Department', role: 'Fire Emergency', phoneNumber: '101', type: 'fire', concertId: concert.id),
@@ -225,31 +241,25 @@ class AppState extends ChangeNotifier {
     _contacts.remove(concertId);
   }
 
-  /// Join a concert by code
-  Future<({bool success, String? error, Concert? concert})> joinConcertByCode(String code) async {
+  /// Join a concert by code with a chosen role
+  Future<({bool success, String? error, Concert? concert})> joinConcertByCode(
+      String code, {String role = 'Volunteers'}) async {
     final concert = await _firestoreService.findConcertByJoinCode(code);
     if (concert == null) {
       return (success: false, error: 'No concert found with this code', concert: null);
     }
-
-    // Check if already a member
     if (concert.memberIds.contains(currentUserId)) {
       return (success: false, error: 'You are already a member of this concert', concert: concert);
     }
-
-    // Add user as member
     await _firestoreService.addMemberToConcert(concert.id, currentUserId);
-
-    // Add as staff
     final newStaff = Staff(
       userId: currentUserId,
       name: currentUserName,
-      role: 'Volunteers', // Default role
+      role: role,
       isCreator: false,
       concertId: concert.id,
     );
     await _firestoreService.addStaff(concert.id, newStaff);
-
     return (success: true, error: null, concert: concert);
   }
 
@@ -263,7 +273,59 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  // --- Tasks ---
+  /// Looks up a concert name by code from Firestore without joining.
+  /// Returns the concert name, or null if not found.
+  Future<String?> lookupConcertByCode(String code) async {
+    return _firestoreService.lookupConcertNameByCode(code);
+  }
+
+  /// Check if current user is the creator of a concert
+  bool isCreator(String concertId) {
+    try {
+      final concert = _concerts.firstWhere((c) => c.id == concertId);
+      return concert.creatorId == currentUserId;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Returns the current user's Staff entry for a concert, or null.
+  Staff? getCurrentUserStaff(String concertId) {
+    try {
+      return (_staff[concertId] ?? [])
+          .firstWhere((s) => s.userId == currentUserId);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Returns the current user's role string for a concert.
+  String getCurrentUserRole(String concertId) {
+    return getCurrentUserStaff(concertId)?.role ?? 'Volunteers';
+  }
+
+  /// Returns true if the current user is marked as creator in the Staff list.
+  bool isCurrentUserCreator(String concertId) {
+    return getCurrentUserStaff(concertId)?.isCreator ?? false;
+  }
+
+  /// Checks whether the current user has a given permission in a concert.
+  bool hasPermission(String concertId, AppPermission permission) {
+    final staff = getCurrentUserStaff(concertId);
+    final role = staff?.role ?? 'Volunteers';
+    final creator = staff?.isCreator ?? false;
+    return PermissionService.hasPermission(role, creator, permission);
+  }
+
+  Concert? getConcertById(String concertId) {
+    try {
+      return _concerts.firstWhere((c) => c.id == concertId);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // ─── Tasks ───────────────────────────────────────────────────────
   List<ConcertTask> getTasksForConcert(String concertId) =>
       _tasks[concertId] ?? [];
 
@@ -279,7 +341,7 @@ class AppState extends ChangeNotifier {
     await _firestoreService.deleteTask(concertId, taskId);
   }
 
-  // --- Artists ---
+  // ─── Artists ─────────────────────────────────────────────────────
   List<Artist> getArtistsForConcert(String concertId) =>
       _artists[concertId] ?? [];
 
@@ -295,7 +357,8 @@ class AppState extends ChangeNotifier {
     await _firestoreService.deleteArtist(concertId, artistId);
   }
 
-  Future<void> reorderArtists(String concertId, int oldIndex, int newIndex) async {
+  Future<void> reorderArtists(
+      String concertId, int oldIndex, int newIndex) async {
     final list = List<Artist>.from(_artists[concertId] ?? []);
     if (newIndex > oldIndex) newIndex--;
     final item = list.removeAt(oldIndex);
@@ -306,7 +369,7 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  // --- Staff ---
+  // ─── Staff ───────────────────────────────────────────────────────
   List<Staff> getStaffForConcert(String concertId) =>
       _staff[concertId] ?? [];
 
@@ -326,7 +389,7 @@ class AppState extends ChangeNotifier {
     return (_staff[concertId] ?? []).map((s) => s.name).toList();
   }
 
-  // --- Incidents ---
+  // ─── Incidents ───────────────────────────────────────────────────
   List<Incident> getIncidentsForConcert(String concertId) =>
       _incidents[concertId] ?? [];
 
@@ -338,7 +401,11 @@ class AppState extends ChangeNotifier {
     await _firestoreService.updateIncident(incident.concertId, incident);
   }
 
-  // --- Notes ---
+  Future<void> deleteIncident(String concertId, String incidentId) async {
+    await _firestoreService.deleteIncident(concertId, incidentId);
+  }
+
+  // ─── Notes ───────────────────────────────────────────────────────
   List<Note> getNotesForConcert(String concertId) =>
       _notes[concertId] ?? [];
 
@@ -357,7 +424,11 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  // --- Expenses ---
+  Future<void> deleteNote(String concertId, String noteId) async {
+    await _firestoreService.deleteNote(concertId, noteId);
+  }
+
+  // ─── Expenses ────────────────────────────────────────────────────
   List<Expense> getExpensesForConcert(String concertId) =>
       _expenses[concertId] ?? [];
 
@@ -370,11 +441,15 @@ class AppState extends ChangeNotifier {
     await _firestoreService.addExpense(expense.concertId, expense);
   }
 
+  Future<void> updateExpense(Expense expense) async {
+    await _firestoreService.updateExpense(expense.concertId, expense);
+  }
+
   Future<void> deleteExpense(String concertId, String expenseId) async {
     await _firestoreService.deleteExpense(concertId, expenseId);
   }
 
-  // --- Emergency Contacts ---
+  // ─── Emergency Contacts ──────────────────────────────────────────
   List<EmergencyContact> getContactsForConcert(String concertId) =>
       _contacts[concertId] ?? [];
 
@@ -390,7 +465,7 @@ class AppState extends ChangeNotifier {
     await _firestoreService.deleteContact(concertId, contactId);
   }
 
-  // --- Concert Budget ---
+  // ─── Concert Budget ──────────────────────────────────────────────
   Future<void> setConcertBudget(String concertId, double budget) async {
     await _firestoreService.setConcertBudget(concertId, budget);
   }

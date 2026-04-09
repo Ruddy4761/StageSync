@@ -6,6 +6,13 @@ import '../../routes/app_routes.dart';
 import '../../data/app_state.dart';
 import '../../models/concert.dart';
 import '../../models/task.dart';
+import '../../models/artist.dart';
+import '../../models/staff.dart';
+import '../../services/permission_service.dart';
+import '../../widgets/app_snackbar.dart';
+import '../tasks/create_task_screen.dart';
+import '../artists/add_artist_screen.dart';
+import '../staff/add_staff_screen.dart';
 
 class ConcertDetailScreen extends StatefulWidget {
   final AppState appState;
@@ -288,6 +295,10 @@ class _ConcertDetailScreenState extends State<ConcertDetailScreen>
   }
 
   void _showOptionsMenu(Concert concert) {
+    final canEdit = widget.appState
+        .hasPermission(widget.concertId, AppPermission.editConcert);
+    final canDelete = widget.appState
+        .hasPermission(widget.concertId, AppPermission.deleteConcert);
     showModalBottomSheet(
       context: context,
       builder: (ctx) => Container(
@@ -295,8 +306,20 @@ class _ConcertDetailScreenState extends State<ConcertDetailScreen>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (canEdit)
+              ListTile(
+                leading: const Icon(Icons.edit_rounded,
+                    color: AppColors.primaryLight),
+                title: const Text('Edit Concert'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  Navigator.pushNamed(context, AppRoutes.editConcert,
+                      arguments: concert);
+                },
+              ),
             ListTile(
-              leading: const Icon(Icons.share_rounded, color: AppColors.primaryLight),
+              leading: const Icon(Icons.share_rounded,
+                  color: AppColors.primaryLight),
               title: const Text('Share Join Code'),
               onTap: () {
                 Clipboard.setData(ClipboardData(text: concert.joinCode));
@@ -307,7 +330,8 @@ class _ConcertDetailScreenState extends State<ConcertDetailScreen>
               },
             ),
             ListTile(
-              leading: const Icon(Icons.summarize_rounded, color: AppColors.tertiary),
+              leading: const Icon(Icons.summarize_rounded,
+                  color: AppColors.tertiary),
               title: const Text('View Summary'),
               onTap: () {
                 Navigator.pop(ctx);
@@ -315,17 +339,18 @@ class _ConcertDetailScreenState extends State<ConcertDetailScreen>
                     arguments: widget.concertId);
               },
             ),
-            ListTile(
-              leading: const Icon(Icons.delete_outline_rounded,
-                  color: AppColors.neonRed),
-              title: const Text('Delete Concert',
-                  style: TextStyle(color: AppColors.neonRed)),
-              onTap: () {
-                widget.appState.deleteConcert(widget.concertId);
-                Navigator.pop(ctx);
-                Navigator.pop(context);
-              },
-            ),
+            if (canDelete)
+              ListTile(
+                leading: const Icon(Icons.delete_outline_rounded,
+                    color: AppColors.neonRed),
+                title: const Text('Delete Concert',
+                    style: TextStyle(color: AppColors.neonRed)),
+                onTap: () {
+                  widget.appState.deleteConcert(widget.concertId);
+                  Navigator.pop(ctx);
+                  Navigator.pop(context);
+                },
+              ),
           ],
         ),
       ),
@@ -615,8 +640,17 @@ class _TasksTabState extends State<_TasksTab> {
                                     color: AppColors.neonRed),
                               ),
                               onDismissed: (_) {
-                                widget.appState
-                                    .deleteTask(widget.concertId, task.id);
+                                if (widget.appState.hasPermission(
+                                    widget.concertId,
+                                    AppPermission.deleteTask)) {
+                                  widget.appState
+                                      .deleteTask(widget.concertId, task.id);
+                                } else {
+                                  // Can't delete — rebuild to restore item
+                                  AppSnackbar.warning(context,
+                                      'You don\'t have permission to delete tasks');
+                                  (context as Element).markNeedsBuild();
+                                }
                               },
                               child: GestureDetector(
                                 onTap: () => _showTaskDetail(task),
@@ -702,13 +736,16 @@ class _TasksTabState extends State<_TasksTab> {
             Positioned(
               right: 16,
               bottom: 16,
-              child: FloatingActionButton(
-                heroTag: 'addTask',
-                onPressed: () => Navigator.pushNamed(
-                    context, AppRoutes.createTask,
-                    arguments: widget.concertId),
-                child: const Icon(Icons.add_rounded),
-              ),
+              child: widget.appState.hasPermission(
+                      widget.concertId, AppPermission.addTask)
+                  ? FloatingActionButton(
+                      heroTag: 'addTask',
+                      onPressed: () => Navigator.pushNamed(
+                          context, AppRoutes.createTask,
+                          arguments: widget.concertId),
+                      child: const Icon(Icons.add_rounded),
+                    )
+                  : const SizedBox.shrink(),
             ),
           ],
         );
@@ -731,7 +768,7 @@ class _TasksTabState extends State<_TasksTab> {
     }
   }
 
-  void _showTaskDetail(task) {
+  void _showTaskDetail(ConcertTask task) {
     showModalBottomSheet(
       context: context,
       builder: (ctx) => Container(
@@ -740,28 +777,59 @@ class _TasksTabState extends State<_TasksTab> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(task.title,
-                style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.textPrimary)),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(task.title,
+                      style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textPrimary)),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.edit_rounded,
+                      color: AppColors.primaryLight, size: 20),
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => CreateTaskScreen(
+                          appState: widget.appState,
+                          concertId: widget.concertId,
+                          task: task,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
             const SizedBox(height: 12),
             _detailRow(Icons.person_outline, 'Assigned to', task.assignedTo),
             _detailRow(Icons.access_time_rounded, 'Time',
                 DateFormat('h:mm a').format(task.time)),
             _detailRow(Icons.flag_rounded, 'Priority', task.priorityLabel),
             _detailRow(Icons.info_outline, 'Status', task.statusLabel),
+            if (task.description != null && task.description!.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              _detailRow(Icons.notes_rounded, 'Notes', task.description!),
+            ],
             const SizedBox(height: 16),
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
-                onPressed: () {
-                  task.status = TaskStatus.done;
-                  widget.appState.updateTask(task);
-                  Navigator.pop(ctx);
-                },
+                onPressed: task.statusLabel == 'Done'
+                    ? null
+                    : () {
+                        task.status = TaskStatus.done;
+                        widget.appState.updateTask(task);
+                        Navigator.pop(ctx);
+                      },
                 icon: const Icon(Icons.check_rounded),
-                label: const Text('Mark as Done'),
+                label: Text(task.statusLabel == 'Done'
+                    ? 'Already Done'
+                    : 'Mark as Done'),
               ),
             ),
           ],
@@ -858,88 +926,93 @@ class _ArtistsTab extends StatelessWidget {
                         );
                       }
                       final artist = artists[index];
-                      return Container(
+                      return GestureDetector(
                         key: ValueKey(artist.id),
-                        margin: const EdgeInsets.only(bottom: 8),
-                        child: Row(
-                          children: [
-                            // Order number
-                            Container(
-                              width: 32,
-                              height: 32,
-                              decoration: BoxDecoration(
-                                gradient: AppColors.primaryGradient,
-                                shape: BoxShape.circle,
-                              ),
-                              child: Center(
-                                child: Text(
-                                  '${artist.order}',
-                                  style: const TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.w700,
-                                      fontSize: 13),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            // Card
-                            Expanded(
-                              child: Container(
-                                padding: const EdgeInsets.all(14),
+                        onLongPress: () => _showArtistMenu(context, artist),
+                        child: Container(
+                          margin: const EdgeInsets.only(bottom: 8),
+                          child: Row(
+                            children: [
+                              // Order number
+                              Container(
+                                width: 32,
+                                height: 32,
                                 decoration: BoxDecoration(
-                                  color: AppColors.surfaceCard,
-                                  borderRadius: BorderRadius.circular(14),
+                                  gradient: AppColors.primaryGradient,
+                                  shape: BoxShape.circle,
                                 ),
-                                child: Row(
-                                  children: [
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(artist.name,
-                                              style: const TextStyle(
-                                                  color: AppColors.textPrimary,
-                                                  fontWeight: FontWeight.w600,
-                                                  fontSize: 15)),
-                                          const SizedBox(height: 4),
-                                          Row(
-                                            children: [
-                                              const Icon(
-                                                  Icons.access_time_rounded,
-                                                  size: 12,
-                                                  color: AppColors.textMuted),
-                                              const SizedBox(width: 4),
-                                              Text(
-                                                DateFormat('h:mm a').format(
-                                                    artist.performanceTime),
-                                                style: const TextStyle(
-                                                    color: AppColors.textMuted,
-                                                    fontSize: 11),
-                                              ),
-                                              const SizedBox(width: 8),
-                                              const Icon(
-                                                  Icons.timer_outlined,
-                                                  size: 12,
-                                                  color: AppColors.textMuted),
-                                              const SizedBox(width: 4),
-                                              Text(artist.durationFormatted,
-                                                  style: const TextStyle(
-                                                      color:
-                                                          AppColors.textMuted,
-                                                      fontSize: 11)),
-                                            ],
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    const Icon(Icons.drag_handle_rounded,
-                                        color: AppColors.textMuted, size: 20),
-                                  ],
+                                child: Center(
+                                  child: Text(
+                                    '${artist.order}',
+                                    style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 13),
+                                  ),
                                 ),
                               ),
-                            ),
-                          ],
+                              const SizedBox(width: 12),
+                              // Card
+                              Expanded(
+                                child: Container(
+                                  padding: const EdgeInsets.all(14),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.surfaceCard,
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(artist.name,
+                                                style: const TextStyle(
+                                                    color: AppColors.textPrimary,
+                                                    fontWeight: FontWeight.w600,
+                                                    fontSize: 15)),
+                                            const SizedBox(height: 4),
+                                            Row(
+                                              children: [
+                                                const Icon(
+                                                    Icons.access_time_rounded,
+                                                    size: 12,
+                                                    color: AppColors.textMuted),
+                                                const SizedBox(width: 4),
+                                                Text(
+                                                  artist.performanceTime != null
+                                                      ? DateFormat('h:mm a').format(
+                                                          artist.performanceTime!)
+                                                      : '--:--',
+                                                  style: const TextStyle(
+                                                      color: AppColors.textMuted,
+                                                      fontSize: 11),
+                                                ),
+                                                const SizedBox(width: 8),
+                                                const Icon(
+                                                    Icons.timer_outlined,
+                                                    size: 12,
+                                                    color: AppColors.textMuted),
+                                                const SizedBox(width: 4),
+                                                Text(artist.durationFormatted,
+                                                    style: const TextStyle(
+                                                        color:
+                                                            AppColors.textMuted,
+                                                        fontSize: 11)),
+                                              ],
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const Icon(Icons.drag_handle_rounded,
+                                          color: AppColors.textMuted, size: 20),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       );
                     },
@@ -947,17 +1020,61 @@ class _ArtistsTab extends StatelessWidget {
             Positioned(
               right: 16,
               bottom: 16,
-              child: FloatingActionButton(
-                heroTag: 'addArtist',
-                onPressed: () => Navigator.pushNamed(
-                    context, AppRoutes.addArtist,
-                    arguments: concertId),
-                child: const Icon(Icons.add_rounded),
-              ),
+              child: appState.hasPermission(
+                      concertId, AppPermission.addArtist)
+                  ? FloatingActionButton(
+                      heroTag: 'addArtist',
+                      onPressed: () => Navigator.pushNamed(
+                          context, AppRoutes.addArtist,
+                          arguments: concertId),
+                      child: const Icon(Icons.add_rounded),
+                    )
+                  : const SizedBox.shrink(),
             ),
           ],
         );
       },
+    );
+  }
+
+  void _showArtistMenu(BuildContext context, Artist artist) {
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => Container(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.edit_rounded, color: AppColors.primaryLight),
+              title: const Text('Edit Artist'),
+              onTap: () {
+                Navigator.pop(ctx);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => AddArtistScreen(
+                      appState: appState,
+                      concertId: concertId,
+                      artist: artist,
+                    ),
+                  ),
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline_rounded,
+                  color: AppColors.neonRed),
+              title: const Text('Delete Artist',
+                  style: TextStyle(color: AppColors.neonRed)),
+              onTap: () {
+                Navigator.pop(ctx);
+                appState.deleteArtist(concertId, artist.id);
+              },
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -974,7 +1091,7 @@ class _StaffTab extends StatelessWidget {
       listenable: appState,
       builder: (context, _) {
         final staff = appState.getStaffForConcert(concertId);
-        final grouped = <String, List<dynamic>>{};
+        final grouped = <String, List<Staff>>{};
         for (final s in staff) {
           grouped.putIfAbsent(s.role, () => []).add(s);
         }
@@ -1102,6 +1219,21 @@ class _StaffTab extends StatelessWidget {
                                             color: AppColors.neonGreen),
                                         onPressed: () {},
                                       ),
+                                    IconButton(
+                                      icon: const Icon(Icons.edit_rounded,
+                                          size: 17,
+                                          color: AppColors.textMuted),
+                                      onPressed: () => Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) => AddStaffScreen(
+                                            appState: appState,
+                                            concertId: concertId,
+                                            staff: member,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
                                   ],
                                 ),
                               )),
@@ -1112,13 +1244,16 @@ class _StaffTab extends StatelessWidget {
             Positioned(
               right: 16,
               bottom: 16,
-              child: FloatingActionButton(
-                heroTag: 'addStaff',
-                onPressed: () => Navigator.pushNamed(
-                    context, AppRoutes.addStaff,
-                    arguments: concertId),
-                child: const Icon(Icons.person_add_rounded),
-              ),
+              child: appState.hasPermission(
+                      concertId, AppPermission.addStaff)
+                  ? FloatingActionButton(
+                      heroTag: 'addStaff',
+                      onPressed: () => Navigator.pushNamed(
+                          context, AppRoutes.addStaff,
+                          arguments: concertId),
+                      child: const Icon(Icons.person_add_rounded),
+                    )
+                  : const SizedBox.shrink(),
             ),
           ],
         );

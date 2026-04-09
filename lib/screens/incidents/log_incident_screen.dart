@@ -6,8 +6,13 @@ import '../../models/incident.dart';
 class LogIncidentScreen extends StatefulWidget {
   final AppState appState;
   final String concertId;
-  const LogIncidentScreen(
-      {super.key, required this.appState, required this.concertId});
+  final Incident? incident; // null = create, non-null = edit
+  const LogIncidentScreen({
+    super.key,
+    required this.appState,
+    required this.concertId,
+    this.incident,
+  });
 
   @override
   State<LogIncidentScreen> createState() => _LogIncidentScreenState();
@@ -15,11 +20,25 @@ class LogIncidentScreen extends StatefulWidget {
 
 class _LogIncidentScreenState extends State<LogIncidentScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _descController = TextEditingController();
-  final _resolutionController = TextEditingController();
-  IncidentType _type = IncidentType.other;
-  IncidentSeverity _severity = IncidentSeverity.low;
-  IncidentStatus _status = IncidentStatus.open;
+  late final TextEditingController _descController;
+  late final TextEditingController _resolutionController;
+  late IncidentType _type;
+  late IncidentSeverity _severity;
+  late IncidentStatus _status;
+
+  bool get _isEdit => widget.incident != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final inc = widget.incident;
+    _type = inc?.type ?? IncidentType.other;
+    _severity = inc?.severity ?? IncidentSeverity.low;
+    _status = inc?.status ?? IncidentStatus.open;
+    _descController = TextEditingController(text: inc?.description ?? '');
+    _resolutionController =
+        TextEditingController(text: inc?.resolutionNotes ?? '');
+  }
 
   @override
   void dispose() {
@@ -30,17 +49,30 @@ class _LogIncidentScreenState extends State<LogIncidentScreen> {
 
   void _save() {
     if (_formKey.currentState!.validate()) {
-      final incident = Incident(
-        type: _type,
-        description: _descController.text.trim(),
-        severity: _severity,
-        status: _status,
-        resolutionNotes: _resolutionController.text.trim().isEmpty
+      if (_isEdit) {
+        // Update existing incident
+        final updated = widget.incident!;
+        updated.type = _type;
+        updated.description = _descController.text.trim();
+        updated.severity = _severity;
+        updated.status = _status;
+        updated.resolutionNotes = _resolutionController.text.trim().isEmpty
             ? null
-            : _resolutionController.text.trim(),
-        concertId: widget.concertId,
-      );
-      widget.appState.addIncident(incident);
+            : _resolutionController.text.trim();
+        widget.appState.updateIncident(updated);
+      } else {
+        final incident = Incident(
+          type: _type,
+          description: _descController.text.trim(),
+          severity: _severity,
+          status: _status,
+          resolutionNotes: _resolutionController.text.trim().isEmpty
+              ? null
+              : _resolutionController.text.trim(),
+          concertId: widget.concertId,
+        );
+        widget.appState.addIncident(incident);
+      }
       Navigator.pop(context);
     }
   }
@@ -48,7 +80,7 @@ class _LogIncidentScreenState extends State<LogIncidentScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Log Incident')),
+      appBar: AppBar(title: Text(_isEdit ? 'Edit Incident' : 'Log Incident')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Form(
@@ -181,8 +213,9 @@ class _LogIncidentScreenState extends State<LogIncidentScreen> {
                     onPressed: _save,
                     icon: const Icon(Icons.warning_amber_rounded,
                         color: Colors.white),
-                    label: const Text('Log Incident',
-                        style: TextStyle(
+                     label: Text(
+                        _isEdit ? 'Update Incident' : 'Log Incident',
+                        style: const TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.w600)),
                     style: ElevatedButton.styleFrom(

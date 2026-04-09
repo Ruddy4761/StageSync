@@ -1,25 +1,63 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:printing/printing.dart';
 import '../../theme/app_colors.dart';
 import '../../data/app_state.dart';
+import '../../services/pdf_service.dart';
 
-class SummaryScreen extends StatelessWidget {
+class SummaryScreen extends StatefulWidget {
   final AppState appState;
   final String concertId;
   const SummaryScreen(
       {super.key, required this.appState, required this.concertId});
 
   @override
+  State<SummaryScreen> createState() => _SummaryScreenState();
+}
+
+class _SummaryScreenState extends State<SummaryScreen> {
+  bool _exporting = false;
+
+  Future<void> _exportPdf() async {
+    if (_exporting) return;
+    setState(() => _exporting = true);
+    try {
+      final concert =
+          widget.appState.concerts.firstWhere((c) => c.id == widget.concertId);
+      final bytes = await PdfService.generateConcertReport(
+        concert: concert,
+        tasks: widget.appState.getTasksForConcert(widget.concertId),
+        artists: widget.appState.getArtistsForConcert(widget.concertId),
+        staff: widget.appState.getStaffForConcert(widget.concertId),
+        incidents: widget.appState.getIncidentsForConcert(widget.concertId),
+        expenses: widget.appState.getExpensesForConcert(widget.concertId),
+        contacts: widget.appState.getContactsForConcert(widget.concertId),
+      );
+      await Printing.layoutPdf(onLayout: (_) async => bytes);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to generate PDF: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: appState,
+      listenable: widget.appState,
       builder: (context, _) {
-        final concert = appState.concerts.firstWhere((c) => c.id == concertId);
-        final tasks = appState.getTasksForConcert(concertId);
-        final artists = appState.getArtistsForConcert(concertId);
-        final staff = appState.getStaffForConcert(concertId);
-        final incidents = appState.getIncidentsForConcert(concertId);
-        final totalSpent = appState.getTotalSpent(concertId);
+        final concert = widget.appState.concerts
+            .firstWhere((c) => c.id == widget.concertId);
+        final tasks = widget.appState.getTasksForConcert(widget.concertId);
+        final artists = widget.appState.getArtistsForConcert(widget.concertId);
+        final staff = widget.appState.getStaffForConcert(widget.concertId);
+        final incidents =
+            widget.appState.getIncidentsForConcert(widget.concertId);
+        final totalSpent = widget.appState.getTotalSpent(widget.concertId);
 
         final doneTasks = tasks.where((t) => t.status.name == 'done').length;
         final taskPercent =
@@ -94,7 +132,7 @@ class SummaryScreen extends StatelessWidget {
                 value: '$taskPercent%',
                 subtitle: '$doneTasks of ${tasks.length} tasks done',
                 children: tasks
-                    .map((t) => Padding(
+                    .map<Widget>((t) => Padding(
                           padding: const EdgeInsets.symmetric(vertical: 3),
                           child: Row(
                             children: [
@@ -161,15 +199,18 @@ class SummaryScreen extends StatelessWidget {
                 width: double.infinity,
                 height: 52,
                 child: OutlinedButton.icon(
-                  onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('📄 Export as PDF — Coming soon!'),
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.picture_as_pdf_rounded),
-                  label: const Text('Export as PDF'),
+                  onPressed: _exporting ? null : _exportPdf,
+                  icon: _exporting
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: AppColors.primaryLight,
+                          ),
+                        )
+                      : const Icon(Icons.picture_as_pdf_rounded),
+                  label: Text(_exporting ? 'Generating...' : 'Export as PDF'),
                 ),
               ),
             ],
